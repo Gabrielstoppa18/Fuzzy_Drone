@@ -1,7 +1,7 @@
 from djitellopy import Tello
 import cv2
 import numpy as np
-
+import fuzzy
 
 ######################################################################
 width = 640  # WIDTH OF THE IMAGE
@@ -10,6 +10,7 @@ deadZone =100
 ######################################################################
 
 startCounter =0
+
 
 # CONNECT TO TELLO
 me = Tello()
@@ -37,17 +38,21 @@ frameHeight = height
 
 
 global imgContour
-global dir;
+global rotate
+global Position
+
+rotate=0
+Position=0
 def empty(a):
     pass
 
 cv2.namedWindow("HSV")
 cv2.resizeWindow("HSV",640,240)
-cv2.createTrackbar("HUE Min","HSV",20,179,empty)
-cv2.createTrackbar("HUE Max","HSV",40,179,empty)
-cv2.createTrackbar("SAT Min","HSV",148,255,empty)
+cv2.createTrackbar("HUE Min","HSV",34,179,empty)
+cv2.createTrackbar("HUE Max","HSV",46,179,empty)
+cv2.createTrackbar("SAT Min","HSV",133,255,empty)
 cv2.createTrackbar("SAT Max","HSV",255,255,empty)
-cv2.createTrackbar("VALUE Min","HSV",89,255,empty)
+cv2.createTrackbar("VALUE Min","HSV",70,255,empty)
 cv2.createTrackbar("VALUE Max","HSV",255,255,empty)
 
 cv2.namedWindow("Parameters")
@@ -89,7 +94,9 @@ def stackImages(scale,imgArray):
     return ver
 
 def getContours(img,imgContour):
-    global dir
+    global rotate
+    global Position
+
     contours, hierarchy = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     for cnt in contours:
         area = cv2.contourArea(cnt)
@@ -103,30 +110,36 @@ def getContours(img,imgContour):
             cx = int(x + (w / 2))  # CENTER X OF THE OBJECT
             cy = int(y + (h / 2))  # CENTER X OF THE OBJECT
 
-            if (cx <int(frameWidth/2)-deadZone):
+            if (int(x) <int(frameWidth/2)-deadZone):
                 cv2.putText(imgContour, " GO LEFT " , (20, 50), cv2.FONT_HERSHEY_COMPLEX,1,(0, 0, 255), 3)
                 cv2.rectangle(imgContour,(0,int(frameHeight/2-deadZone)),(int(frameWidth/2)-deadZone,int(frameHeight/2)+deadZone),(0,0,255),cv2.FILLED)
-                dir = 1
-            elif (cx > int(frameWidth / 2) + deadZone):
+                rotate = int(x)-int(frameWidth/2)-deadZone
+            elif (int(x+w) > int(frameWidth / 2) + deadZone):
                 cv2.putText(imgContour, " GO RIGHT ", (20, 50), cv2.FONT_HERSHEY_COMPLEX,1,(0, 0, 255), 3)
                 cv2.rectangle(imgContour,(int(frameWidth/2+deadZone),int(frameHeight/2-deadZone)),(frameWidth,int(frameHeight/2)+deadZone),(0,0,255),cv2.FILLED)
-                dir = 2
-            elif (cy < int(frameHeight / 2) - deadZone):
+                rotate = int(x+w) - int(frameWidth / 2) + deadZone
+            elif (int(y) < int(frameHeight / 2) - deadZone):
                 cv2.putText(imgContour, " GO UP ", (20, 50), cv2.FONT_HERSHEY_COMPLEX,1,(0, 0, 255), 3)
                 cv2.rectangle(imgContour,(int(frameWidth/2-deadZone),0),(int(frameWidth/2+deadZone),int(frameHeight/2)-deadZone),(0,0,255),cv2.FILLED)
-                dir = 3
-            elif (cy > int(frameHeight / 2) + deadZone):
+                
+                Position = int(y) - int(frameHeight / 2) - deadZone
+            elif (int(y+h) > int(frameHeight / 2) + deadZone):
                 cv2.putText(imgContour, " GO DOWN ", (20, 50), cv2.FONT_HERSHEY_COMPLEX, 1,(0, 0, 255), 3)
                 cv2.rectangle(imgContour,(int(frameWidth/2-deadZone),int(frameHeight/2)+deadZone),(int(frameWidth/2+deadZone),frameHeight),(0,0,255),cv2.FILLED)
-                dir = 4
-            else: dir=0
+                Position= int(y+h) - int(frameHeight / 2) + deadZone
+            else: 
+                rotate=0
+                Position=0
+
 
             cv2.line(imgContour, (int(frameWidth/2),int(frameHeight/2)), (cx,cy),(0, 0, 255), 3)
             cv2.rectangle(imgContour, (x, y), (x + w, y + h), (0, 255, 0), 5)
             cv2.putText(imgContour, "Points: " + str(len(approx)), (x + w + 20, y + 20), cv2.FONT_HERSHEY_COMPLEX, .7,(0, 255, 0), 2)
             cv2.putText(imgContour, "Area: " + str(int(area)), (x + w + 20, y + 45), cv2.FONT_HERSHEY_COMPLEX, 0.7,(0, 255, 0), 2)
             cv2.putText(imgContour, " " + str(int(x)) + " " + str(int(y)), (x - 20, y - 45), cv2.FONT_HERSHEY_COMPLEX,0.7,(0, 255, 0), 2)
-        else: dir=0
+        else: 
+            rotate=0
+            Position=0
 
 def display(img):
     cv2.line(img,(int(frameWidth/2)-deadZone,0),(int(frameWidth/2)-deadZone,frameHeight),(255,255,0),3)
@@ -162,6 +175,9 @@ while True:
     imgGray = cv2.cvtColor(imgBlur, cv2.COLOR_BGR2GRAY)
     threshold1 = cv2.getTrackbarPos("Threshold1", "Parameters")
     threshold2 = cv2.getTrackbarPos("Threshold2", "Parameters")
+    text = "Battery: {}%".format(me.get_battery())
+    cv2.putText(img, text, (5, 720 - 5),
+        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
     imgCanny = cv2.Canny(imgGray, threshold1, threshold2)
     kernel = np.ones((5, 5))
     imgDil = cv2.dilate(imgCanny, kernel, iterations=1)
@@ -173,21 +189,19 @@ while True:
        me.takeoff()
        startCounter = 1
 
+    vpfuzzy=fuzzy.fuzzy(rotate,Position)
+    velocity=int(vpfuzzy[0])
+    Position=int(vpfuzzy[1])
 
-    if dir == 1:
-       me.yaw_velocity = -60
-    elif dir == 2:
-       me.yaw_velocity = 60
-    elif dir == 3:
-       me.up_down_velocity= 60
-    elif dir == 4:
-       me.up_down_velocity= -60
-    else:
-       me.left_right_velocity = 0; me.for_back_velocity = 0;me.up_down_velocity = 0; me.yaw_velocity = 0
+    print(me.get_battery())
+
+    me.yaw_velocity = velocity
+    me.up_down_velocity= Position
+    me.left_right_velocity = 0; me.for_back_velocity = 0
    # SEND VELOCITY VALUES TO TELLO
     if me.send_rc_control:
        me.send_rc_control(me.left_right_velocity, me.for_back_velocity, me.up_down_velocity, me.yaw_velocity)
-    print(dir)
+    #print(dir)
 
     stack = stackImages(0.9, ([img, result], [imgDil, imgContour]))
     cv2.imshow('Horizontal Stacking', stack)
